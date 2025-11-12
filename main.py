@@ -10,8 +10,10 @@ import csv
 import os
 from datetime import datetime
 
+# Создаем экземпляр FastAPI приложения
 app = FastAPI(title="YOLO API Service")
 
+# Настройка CORS (Cross-Origin Resource Sharing) для работы с фронтендом и мобильными приложениями
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,33 +25,37 @@ app.add_middleware(
 # КОНФИГУРАЦИЯ АННОТАЦИЙ - ВСЕ ПАРАМЕТРЫ ДЛЯ НАСТРОЙКИ ЗДЕСЬ
 ANNOTATION_CONFIG = {
     # Коэффициенты для расчета толщины рамки
-    'line_thickness_base': 2.5,           # Базовая толщина для изображения высотой 800px
-    'line_thickness_min': 1,            # Минимальная толщина
+    'line_thickness_base': 3.2,           # Базовая толщина для изображения высотой 800px
+    'line_thickness_min': 1.5,          # Минимальная толщина
     'line_thickness_max': 8,            # Максимальная толщина
     
     # Коэффициенты для расчета размера шрифта
-    'font_size_base': 22,               # Базовый размер для изображения высотой 800px
-    'font_size_min': 12,                # Минимальный размер шрифта
-    'font_size_max': 45,                # Максимальный размер шрифта
+    'font_size_base': 28,               # Базовый размер для изображения высотой 800px
+    'font_size_min': 14,                # Минимальный размер шрифта
+    'font_size_max': 50,                # Максимальный размер шрифта
     
     # Коэффициенты для отступов текста
-    'text_padding': 6,                  # Отступ текста от краев подложки
-    'text_offset': 4,                   # Отступ текста от bounding box
+    'text_padding': 5,                  # Отступ текста от краев подложки
+    'text_offset': 2,                   # Отступ текста от bounding box
     
     # Порог яркости для выбора цвета текста
     'brightness_threshold': 128,        # Если яркость > 128 - черный текст, иначе белый
 }
 
 # Глобальные переменные
-current_model = None
-translation_dict = {}
-model_config = {}
-current_font = None
+current_model = None # Модель
+translation_dict = {} # Словарь переводов
+model_config = {} # Конфигурация
+current_font = None # Шрифт
 
 def load_model_config():
-    """Загрузка конфигурации модели из JSON файла"""
+    """
+    Загрузка конфигурации модели из JSON файла model_config.json
+    Функция читает настройки и сохраняет их в глобальную переменную model_config
+    """
     global model_config
     try:
+        # Открываем и читаем JSON файл с конфигурацией
         with open('model_config.json', 'r', encoding='utf-8') as f:
             model_config = json.load(f)
         print(f"Конфигурация модели загружена: {model_config}")
@@ -59,18 +65,31 @@ def load_model_config():
         return False
 
 def load_translations(translate_name):
-    """Загрузка переводов классов из CSV файла"""
+    """
+    Загрузка переводов классов из CSV файла
+    
+    Args:
+        translate_name (str): Имя файла с переводами (например, "OpenImagesV7.csv")
+    
+    Returns:
+        bool: True если загрузка успешна, False в случае ошибки
+    """
     global translation_dict
     try:
+        # Формируем путь к файлу переводов в папке translations
         translation_file = f'translations/{translate_name}'
         translation_dict = {}
         
+        # Открываем CSV файл и читаем построчно
         with open(translation_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # Извлекаем данные из строки CSV
                 english_name = row['english']
                 russian_name = row['russian']
                 
+                # Создаем запись в словаре переводов
+                # Ключ - английское название, значение - словарь с переводом и номером класса
                 translation_dict[english_name] = {
                     'russian': russian_name,
                     'class_number': int(row['class_number'])
@@ -136,15 +155,24 @@ def load_font(font_file_name):
         return None
 
 def load_model():
-    """Загрузка модели YOLO из папки models"""
+    """
+    Загрузка модели YOLO из папки models
+    
+    Returns:
+        bool: True если загрузка успешна, False в случае ошибки
+    """
     global current_model
     try:
+        # Формируем полный путь к файлу модели
         model_path = f'models/{model_config["model_name"]}'
         
+        # Проверяем существование файла модели
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Файл модели не найден: {model_path}")
         
+        # Загружаем модель с помощью Ultralytics
         current_model = YOLO(model_path)
+        # Перемещаем модель на CPU
         current_model.to('cpu')
         print(f"Модель успешно загружена: {model_config['model_name']}")
         return True
@@ -153,36 +181,61 @@ def load_model():
         return False
 
 def initialize_app():
-    """Основная функция инициализации приложения"""
+    """
+    Основная функция инициализации приложения
+    Выполняет загрузку конфигурации, модели и переводов
+    
+    Returns:
+        bool: True если все компоненты загружены успешно
+    """
+
+    # Загружаем конфигурацию модели
     if not load_model_config():
         print("❌ Ошибка: Не удалось загрузить конфигурацию модели")
         return False
     
+    # Загружаем модель YOLO
     if not load_model():
         print("❌ Ошибка: Не удалось загрузить модель")
         return False
     
+    # Загружаем переводы классов
     if not load_translations(model_config["translate_name"]):
         print("❌ Ошибка: Не удалось загрузить переводы")
         return False
     
+    # Загружаем шрифт
     font_file = model_config.get("font_file")
     if font_file:
         load_font(font_file)
     else:
         print("⚠️ Файл шрифта не указан в конфигурации")
     
+    # Успех
     print("✅ Все компоненты приложения успешно инициализированы")
     return True
 
 def get_label_translation(label, language):
-    """Получение перевода метки класса на указанный язык"""
+    """
+    Получение перевода метки класса на указанный язык
+    
+    Args:
+        label (str): Исходная метка на английском языке
+        lang (str): Язык для перевода ('en' или 'ru')
+    
+    Returns:
+        str: Переведенная метка на выбранном языке
+    """
+
+    # Если запрошен английский или метки нет в словаре, возвращаем оригинал
     if language == 'en' or label not in translation_dict:
         return label
     
+    # Если запрошен русский и перевод есть, возвращаем русскую версию
     if language == 'ru':
         return translation_dict[label]['russian']
     
+    # Для неподдерживаемых языков возвращаем английскую метку
     return label
 
 
@@ -242,7 +295,6 @@ def get_color_for_class(class_id):
     ]
     return colors[class_id % len(colors)]
 
-
 def get_contrast_text_color(background_color):
     """
     ОПРЕДЕЛЕНИЕ КОНТРАСТНОГО ЦВЕТА ТЕКСТА
@@ -270,7 +322,7 @@ def get_contrast_text_color(background_color):
     
     # Выбираем цвет текста на основе яркости фона
     if brightness > threshold:
-        return (0, 0, 0)  # Черный текст для светлого фона
+        return (4, 28, 85)  # Черный (темный) текст для светлого фона
     else:
         return (255, 255, 255)  # Белый текст для темного фона
 
@@ -310,15 +362,19 @@ def create_custom_annotated_image(image, results, detections, language):
     config = ANNOTATION_CONFIG
     
     # ШАГ 1: ПОДГОТОВКА ИЗОБРАЖЕНИЯ
+    # Конвертируем numpy array в PIL Image
     if image.shape[2] == 3:
         pil_image = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     else:
         pil_image = Image.fromarray(image)
     
     draw = ImageDraw.Draw(pil_image)
+
+    # Получаем размеры изображения для масштабирования
     image_width, image_height = pil_image.size
     
     # ШАГ 2: НАСТРОЙКА ШРИФТА И ПАРАМЕТРОВ
+    # Вычисляем
     font_size = calculate_font_size(image_height)
     line_thickness = calculate_line_thickness(image_height)
     padding = config['text_padding']
@@ -345,17 +401,18 @@ def create_custom_annotated_image(image, results, detections, language):
         for i, box in enumerate(boxes):
             # Координаты bounding box
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-            confidence = float(box.conf)
-            class_id = int(box.cls)
+            confidence = float(box.conf) # Уверенность
+            class_id = int(box.cls) # ID класса
             
-            # Получаем переведенную метку
+            # Получаем переведенную метку из наших детекций
             if i < len(detections):
                 display_label = detections[i]['label']
             else:
+                # Используем оригинальную метку
                 original_label = current_model.names[class_id]
                 display_label = get_label_translation(original_label, language)
             
-            # Формируем текст
+            # Формируем текст для отображения
             label_text = f"{display_label} {confidence:.2f}"
             
             # Получаем цвет и контрастный текст
@@ -415,9 +472,13 @@ def create_custom_annotated_image(image, results, detections, language):
 
 @app.on_event("startup")
 async def startup_event():
-    """Инициализация приложения при запуске"""
+    """
+    Событие, выполняемое при запуске сервера
+    Инициализирует все необходимые компоненты приложения
+    """
     print("🚀 Запуск YOLO API сервера...")
     
+    # Выполняем инициализацию приложения
     if initialize_app():
         print("✅ Сервер успешно запущен")
         print(f"📁 Используемая модель: {model_config['model_name']}")
@@ -426,6 +487,7 @@ async def startup_event():
         print(f"🔠 Используемый шрифт: {model_config.get('font_file', 'не указан')}")
     else:
         print("❌ Не удалось инициализировать приложение")
+        # Прерываем запуск сервера при ошибке инициализации
         raise RuntimeError("Не удалось инициализировать приложение")
 
 @app.post("/predict/")
@@ -434,13 +496,25 @@ async def predict(
     confidence: float = Form(0.5),
     language: str = Form("en")
 ):
-    """Основной endpoint для детекции объектов"""
+    """
+    Основной endpoint для выполнения предсказания на изображении
+    
+    Args:
+        file: Загружаемое изображение (обязательный параметр)
+        confidence: Порог уверенности для детекции (по умолчанию 0.5)
+        language: Язык возвращаемых меток ('en' или 'ru', по умолчанию 'en')
+    
+    Returns:
+        dict: Результаты детекции с переведенными метками
+    """
     try:
         print(f"🎯 Начало обработки запроса: confidence={confidence}, language={language}")
         
+        # Проверяем, что модель загружена
         if current_model is None:
             raise HTTPException(status_code=500, detail="Модель не загружена")
         
+        # Проверяем корректность указанного языка
         if language not in ['en', 'ru']:
             raise HTTPException(
                 status_code=400, 
@@ -453,6 +527,7 @@ async def predict(
                 detail="Порог уверенности должен быть между 0 и 1"
             )
         
+        # Проверяем, что загружен файл изображения
         if not file.content_type.startswith('image/'):
             raise HTTPException(status_code=400, detail="Файл должен быть изображением")
         
@@ -475,7 +550,8 @@ async def predict(
             print("🔄 Конвертирован BGR -> RGB")
         
         # Выполняем предсказание с помощью YOLO модели
-        print(f"🔍 Выполнение предсказания YOLO с уверенностью {confidence}...")        
+        print(f"🔍 Выполнение предсказания YOLO с уверенностью {confidence}...")
+        # Примечание: используем встроенную фильтрацию YOLO       
         results = current_model(image_array, conf=confidence, verbose=True)
         
         print(f"📊 YOLO обнаружено результатов: {len(results)}")
@@ -485,7 +561,7 @@ async def predict(
         for i, result in enumerate(results):
             boxes = result.boxes
             if boxes is not None:
-                print(f"📦 Результат {i}: {len(boxes)} боксов")
+                print(f"📦 Результат: {len(boxes)} боксов")
                 for j, box in enumerate(boxes):
                     box_confidence = float(box.conf)
                     class_id = int(box.cls)
@@ -498,11 +574,11 @@ async def predict(
                     
                     # Формируем информацию о детекции
                     detection = {
-                        'label': translated_label,
-                        'label_en': original_label,
-                        'confidence': box_confidence,
-                        'bbox': box.xyxy[0].tolist(),
-                        'class_id': class_id
+                        'label': translated_label,     # Переведенная метка
+                        'label_en': original_label,    # Оригинальная английская метка
+                        'confidence': box_confidence,  # Уверенность предсказания
+                        'bbox': box.xyxy[0].tolist(),  # Координаты bounding box [x1, y1, x2, y2]
+                        'class_id': class_id           # ID класса
                     }
                     detections.append(detection)
             else:
@@ -526,6 +602,7 @@ async def predict(
         
         print(f"🎉 Успешно завершено. Возвращаем {len(detections)} детекций")
         
+        # Формируем и возвращаем ответ
         return {
             "success": True,
             "detections": detections,
@@ -539,6 +616,7 @@ async def predict(
         }
         
     except Exception as e:
+        # Обрабатываем ошибки
         print(f"❌ Критическая ошибка предсказания: {str(e)}")
         import traceback
         print(f"🔍 Трассировка ошибки: {traceback.format_exc()}")
@@ -546,7 +624,12 @@ async def predict(
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
-    """Endpoint для проверки работоспособности сервера"""
+    """
+    Endpoint для проверки работоспособности сервера
+    Используется для мониторинга и проверки состояния API
+    """
+
+    # Определяем статус сервера на основе загрузки модели
     status = "healthy" if current_model is not None else "degraded"
     
     return {
@@ -554,17 +637,17 @@ async def health_check():
         "current_model": model_config.get("model_name", "none"),
         "translate_file": model_config.get("translate_name", "none"),
         "translations_loaded": len(translation_dict),
-        "font": model_config.get("font_file", "none"),
+        "font_file": model_config.get("font_file", "none"),
         "timestamp": datetime.now().isoformat()
     }
 
-@app.api_route("/models", methods=["GET", "HEAD"])
-async def list_models():
-    """Endpoint для получения информации о текущей загруженной модели"""
+@app.api_route("/model", methods=["GET", "HEAD"])
+async def list_model():
+    """
+    Endpoint для получения информации о текущей загруженной модели
+    """
     return {
-        "current_model": model_config.get("model_name", "none"),
-        "translate_file": model_config.get("translate_name", "none"),
-        "available_translations": list(translation_dict.keys())[:10] + ["..."] if len(translation_dict) > 10 else list(translation_dict.keys())
+        "current_model": model_config.get("model_name", "none")        
     }
 
 @app.api_route("/config", methods=["GET", "HEAD"])
@@ -572,10 +655,9 @@ async def get_config():
     """Endpoint для получения текущей конфигурации сервера"""
     return {
         "model_config": model_config,
-        "translation_stats": {
-            "total_classes": len(translation_dict),
-            "translate_file": model_config.get("translate_name", "none")
-        }
+        "translate_file": model_config.get("translate_name", "none"),
+        "translations_loaded": len(translation_dict),
+        "font": model_config.get("font_file", "none")
     }
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -587,7 +669,7 @@ async def root():
         "endpoints": {
             "/predict/": "POST - выполнить детекцию объектов на изображении",
             "/health": "GET - проверить состояние сервера", 
-            "/models": "GET - информация о текущей модели",
+            "/model": "GET - информация о текущей модели",
             "/config": "GET - текущая конфигурация"
         }
     }
